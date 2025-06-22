@@ -2,10 +2,10 @@ import streamlit as st
 import torch
 import torch.nn as nn
 import numpy as np
-from urllib.request import urlopen
+import os # Importamos 'os' para verificar si el archivo existe
 
 # --- MODEL DEFINITION ---
-# IMPORTANT: The model class here MUST be identical to the one used for training.
+# La definición de la clase del modelo debe ser idéntica a la usada en el entrenamiento.
 LATENT_DIM = 100
 N_CLASSES = 10
 IMG_SIZE = 28
@@ -34,30 +34,30 @@ class Generator(nn.Module):
         img = img.view(img.size(0), *IMG_SHAPE)
         return img
 
-# --- MODEL LOADING ---
-# Use Streamlit's caching to load the model only once.
+# --- MODEL LOADING (VERSIÓN CORREGIDA) ---
+# Esta función ahora carga el modelo desde un archivo local en el repositorio.
 @st.cache_resource
 def load_model():
-    # IMPORTANT: Replace this with the raw URL of your generator.pth file on GitHub
-    MODEL_URL = "https://raw.githubusercontent.com/Edwin2711/GAN-Training-Project/main/generator.pth"
-    
-    # Use CPU for inference as most free deployment platforms don't provide GPUs
+    MODEL_PATH = "generator.pth"
     device = torch.device('cpu')
-    
     model = Generator()
-    
-    # Download the state dictionary
-    try:
-        model_file = urlopen(MODEL_URL)
-        state_dict = torch.load(model_file, map_location=device)
-        model.load_state_dict(state_dict)
-    except Exception as e:
-        st.error(f"Error loading model: {e}")
+
+    # Verificar si el archivo del modelo existe antes de intentar cargarlo
+    if not os.path.exists(MODEL_PATH):
+        st.error(f"Error: El archivo del modelo '{MODEL_PATH}' no se encontró. "
+                 "Asegúrate de que esté en el repositorio de GitHub junto a app.py.")
         return None
 
-    model.to(device)
-    model.eval() # Set the model to evaluation mode
-    return model
+    try:
+        # Cargar el modelo directamente desde la ruta del archivo local
+        state_dict = torch.load(MODEL_PATH, map_location=device)
+        model.load_state_dict(state_dict)
+        model.to(device)
+        model.eval() # Poner el modelo en modo de evaluación
+        return model
+    except Exception as e:
+        st.error(f"Ocurrió un error al cargar el modelo: {e}")
+        return None
 
 generator = load_model()
 
@@ -68,37 +68,35 @@ st.title("Handwritten Digit Image Generator")
 st.write("Generate synthetic MNIST-like images using your trained model.")
 st.write("---")
 
-# User input
+# Controles en la barra lateral
 st.sidebar.header("Controls")
 selected_digit = st.sidebar.selectbox("Choose a digit to generate (0-9):", list(range(10)))
 generate_button = st.sidebar.button("Generate Images", type="primary")
 
-if generate_button and generator is not None:
-    st.subheader(f"Generated images of digit {selected_digit}")
 
-    # Create 5 columns for the images
-    cols = st.columns(5)
+if generator is not None:
+    if generate_button:
+        st.subheader(f"Generated images of digit {selected_digit}")
 
-    for i in range(5):
-        # Generate a new image
-        with torch.no_grad():
-            # Create random noise and the desired label
-            noise = torch.randn(1, LATENT_DIM, device='cpu')
-            label = torch.LongTensor([selected_digit]).to('cpu')
-            
-            # Generate the image
-            generated_image = generator(noise, label)
-            
-            # Post-process for display: scale from [-1, 1] to [0, 1]
-            generated_image = 0.5 * generated_image + 0.5
-            # Convert to numpy array
-            np_image = generated_image.squeeze().numpy()
+        # Crear 5 columnas para las imágenes
+        cols = st.columns(5)
 
-        # Display in the respective column
-        with cols[i]:
-            st.image(np_image, caption=f"Sample {i+1}", use_column_width='always')
+        for i in range(5):
+            # Generar una nueva imagen
+            with torch.no_grad():
+                noise = torch.randn(1, LATENT_DIM, device='cpu')
+                label = torch.LongTensor([selected_digit]).to('cpu')
+                generated_image = generator(noise, label)
+                
+                # Post-procesar para mostrar: escalar de [-1, 1] a [0, 1]
+                generated_image = 0.5 * generated_image + 0.5
+                np_image = generated_image.squeeze().numpy()
 
-elif generator is None:
-    st.error("Model could not be loaded. Please check the model URL and file.")
+            # Mostrar en la columna respectiva
+            with cols[i]:
+                st.image(np_image, caption=f"Sample {i+1}", use_column_width='always')
+    else:
+        st.info("Select a digit and click 'Generate Images' to start.")
 else:
-    st.info("Select a digit and click 'Generate Images' to start.")
+    # Este mensaje se mostrará si la carga del modelo falla
+    st.error("The application could not start because the model failed to load.")
